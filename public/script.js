@@ -14,7 +14,9 @@ const TICKET_PRICE_EGP = 90;
 const MAX_BOOKING_DAYS_AHEAD = 5;
 
 // --- DOM Elements ---
-// Removed splashScreen
+const qrZoomModal = document.getElementById('qr-zoom-modal');
+const qrZoomContent = document.getElementById('qr-zoom-content');
+const qrZoomCloseBtn = document.getElementById('qr-zoom-close-btn');
 const authView = document.getElementById('auth-view');
 const customerLoginForm = document.getElementById('customer-login-form');
 const customerRegisterForm = document.getElementById('customer-register-form');
@@ -467,7 +469,7 @@ function createBookingListItem(booking, viewType = 'customer') {
                      <p class="text-sm text-gray-600 mb-1"><strong>Showtime:</strong> ${booking.showtime || 'N/A'}</p>
                      <p class="text-sm text-gray-600"><strong>Seats:</strong> <span class="seats">${booking.seats?.sort()?.join(', ') || 'N/A'}</span></p>
                  </div>
-                 <div id="qr-code-${booking.id}" class="qr-code-container" title='${qrData.replace(/'/g, "&apos;")}'></div>
+                 <div id="qr-code-${booking.id}" class="qr-code-container cursor-pointer" title='${qrData.replace(/'/g, "'")}' onclick="openQrZoomModal(this)"></div>
              </div>
              <div class="booking-meta">
                  <span>Booked: ${booking.timestamp ? new Date(booking.timestamp.toDate()).toLocaleString() : 'N/A'}</span> |
@@ -645,6 +647,74 @@ function renderAnalyticsDashboard(targetVendorName = null) {
     });
      if (!hasOccupancyData) {
         occupancyContainer.innerHTML = `<p class="text-gray-500">No booking data available ${isVendor ? 'for your movies' : ''}.</p>`;
+    }
+
+    const monthlySeatsContainer = document.createElement('div');
+    monthlySeatsContainer.className = 'analytics-card'; // Reuse card style
+    monthlySeatsContainer.id = 'admin-monthly-seats-card';
+    const monthlyTitle = document.createElement('h3');
+
+    monthlyTitle.className = 'text-xl font-semibold mb-3 text-gray-600';
+    monthlyTitle.textContent = 'Seats Booked Per Month';
+    monthlySeatsContainer.appendChild(monthlyTitle);
+    const monthlyList = document.createElement('div');
+    monthlyList.className = 'space-y-2 text-sm';
+
+    const monthlyData = relevantBookings.reduce((acc, booking) => {
+        if (booking.timestamp && booking.seats && Array.isArray(booking.seats) && booking.seats.length > 0) {
+            try {
+                const date = booking.timestamp.toDate(); // Convert Firestore Timestamp
+                const year = date.getFullYear();
+                const month = date.getMonth(); // 0-indexed (Jan=0)
+                const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`; // Format YYYY-MM
+
+                if (!acc[monthKey]) {
+                    acc[monthKey] = 0;
+                }
+                acc[monthKey] += booking.seats.length; // Sum seats for the month
+            } catch (e) {
+                 console.warn("Could not process timestamp for monthly analytics:", booking.id, booking.timestamp);
+            }
+        }
+        return acc;
+    }, {});
+
+    const sortedMonths = Object.keys(monthlyData).sort().reverse(); // Sort recent months first
+
+    if (sortedMonths.length > 0) {
+        sortedMonths.forEach(monthKey => {
+            const [year, monthNum] = monthKey.split('-');
+            const monthName = new Date(year, monthNum - 1, 1).toLocaleString('default', { month: 'long' });
+            const seats = monthlyData[monthKey];
+            const item = document.createElement('div');
+            item.className = 'flex justify-between items-center pb-1 border-b border-gray-200';
+            item.innerHTML = `
+                <span class="font-medium text-gray-700">${monthName} ${year}</span>
+                <span class="font-semibold text-blue-600">${seats} ${seats === 1 ? 'seat' : 'seats'}</span>
+            `;
+            monthlyList.appendChild(item);
+        });
+    } else {
+        monthlyList.innerHTML = `<p class="text-gray-500">No monthly booking data available ${isVendor ? 'for your movies' : ''}.</p>`;
+    }
+
+    monthlySeatsContainer.appendChild(monthlyList);
+
+    // Append the new analytics card to the appropriate container
+    if (isVendor) {
+        // Append to vendor analytics section (make sure parent exists)
+        const vendorAnalyticsSection = document.getElementById('vendor-analytics'); // Or a more specific container
+        if (vendorAnalyticsSection) {
+             const oldCard = vendorAnalyticsSection.querySelector('#admin-monthly-seats-card'); // Check within vendor section
+             if (oldCard) oldCard.remove();
+             vendorAnalyticsSection.appendChild(monthlySeatsContainer);
+        }
+    
+    } else {
+         // Append to admin analytics section
+         const oldCard = adminAnalyticsSection.querySelector('#admin-monthly-seats-card'); // Check within admin section
+         if (oldCard) oldCard.remove();
+         adminAnalyticsSection.appendChild(monthlySeatsContainer);
     }
 }
 
@@ -988,112 +1058,200 @@ function resetVendorForm() {
     vendorFormTitle.textContent = 'Add New Vendor';
     vendorSubmitButton.textContent = 'Add Vendor';
     vendorCancelEditButton.classList.add('hidden');
+
+    // Re-enable potentially disabled fields
+    const emailInput = document.getElementById('new-vendor-email');
+    const passwordInput = document.getElementById('new-vendor-password');
+    if (emailInput) emailInput.disabled = false;
+    if (passwordInput) {
+         passwordInput.disabled = false;
+         passwordInput.placeholder = ''; // Reset placeholder
+    }
 }
-
-async function handleVendorFormSubmit(event) {
-    event.preventDefault();
-    const isEditing = !!editingVendorId;
-
-    const vendorData = {
-        name: document.getElementById('vendor-name').value.trim(),
-        email: document.getElementById('new-vendor-email').value.trim(),
-        // Security Warning: Storing plain passwords is not recommended!
-        // Vendors should ideally authenticate via Firebase Auth.
-        // This is kept for simplicity based on the request.
-        password: document.getElementById('new-vendor-password').value.trim()
-    };
-
-    if (!vendorData.name || !vendorData.email || !vendorData.password) {
-        alert("Please fill all vendor fields.");
-        return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(vendorData.email)) {
-        alert("Please enter a valid email address.");
-        return;
-    }
-
-    // Check for duplicate email (excluding the one being edited)
-    const duplicate = vendors.some(v => v.email === vendorData.email && v.id !== editingVendorId);
-    if (duplicate) {
-        alert("A vendor with this email already exists.");
-        return;
-    }
-
-    try {
-        if (isEditing) {
-            // Update existing vendor
-            const vendorRef = doc(db, "vendors", editingVendorId);
-            await updateDoc(vendorRef, vendorData);
-            console.log("Vendor updated:", editingVendorId);
-            // Update local array
-            const index = vendors.findIndex(v => v.id === editingVendorId);
-            if (index > -1) {
-                vendors[index] = { ...vendors[index], ...vendorData };
-            }
-        } else {
-            // Add new vendor
-            // CONSIDER: Create a corresponding Firebase Auth user for the vendor here?
-            // For simplicity, just adding to Firestore as requested.
-            vendorData.createdAt = serverTimestamp(); // Add timestamp for new vendors
-            const docRef = await addDoc(collection(db, "vendors"), vendorData);
-            console.log("Vendor added with ID:", docRef.id);
-            // Add to local array
-             vendors.push({ id: docRef.id, ...vendorData, createdAt: new Date() });
+    async function handleVendorFormSubmit(event) {
+        event.preventDefault();
+        const isEditing = !!editingVendorId;
+    
+        const vendorName = document.getElementById('vendor-name').value.trim();
+        const vendorEmail = document.getElementById('new-vendor-email').value.trim();
+        const vendorPassword = document.getElementById('new-vendor-password').value.trim();
+    
+        if (!vendorName || !vendorEmail || (isEditing ? false : !vendorPassword)) { // Password required only for add
+            alert("Please fill all vendor fields.");
+            return;
         }
-        renderVendorList(); // Refresh list
-        resetVendorForm();
-        populateVendorDropdown('movie-vendor'); // Update movie form dropdown
-
-    } catch (error) {
-        console.error("Error saving vendor:", error);
-        alert(`Failed to ${isEditing ? 'update' : 'add'} vendor. Please try again.`);
+        if (!/^\S+@\S+\.\S+$/.test(vendorEmail)) {
+            alert("Please enter a valid email address.");
+            return;
+        }
+         if (!isEditing && vendorPassword.length < 6) {
+             alert("Password must be at least 6 characters.");
+             return;
+         }
+    
+        // --- Handle Editing (Name Only) ---
+        if (isEditing) {
+            console.log("Attempting to edit vendor:", editingVendorId);
+            // Check for duplicate email is complex if email itself changes,
+            // and changing email/password requires Auth changes.
+            // *** SIMPLIFICATION: Only allow editing the name via this form ***
+            const originalVendor = vendors.find(v => v.id === editingVendorId);
+            if (!originalVendor) {
+                alert("Vendor not found for editing.");
+                resetVendorForm();
+                return;
+            }
+            if (originalVendor.email !== vendorEmail) {
+                 alert("Editing vendor email is not supported here. Please manage users in Firebase Authentication console.");
+                 // Optionally reset the email field to original value
+                 // document.getElementById('new-vendor-email').value = originalVendor.email;
+                 return;
+             }
+             if (vendorPassword && originalVendor.password !== vendorPassword) { // Password field shouldn't really be here for edit
+                 alert("Editing vendor password is not supported here. Please manage users in Firebase Authentication console.");
+                 // Optionally clear password field
+                 // document.getElementById('new-vendor-password').value = '';
+                 return;
+             }
+    
+    
+            // Update only the name in the /vendors/{uid} document
+            try {
+                vendorSubmitButton.disabled = true;
+                vendorSubmitButton.textContent = 'Saving...';
+                const vendorRef = doc(db, "vendors", editingVendorId); // Assumes ID is Auth UID
+                await updateDoc(vendorRef, { name: vendorName });
+                console.log("Vendor name updated:", editingVendorId);
+    
+                // Update local array
+                const index = vendors.findIndex(v => v.id === editingVendorId);
+                if (index > -1) {
+                    vendors[index].name = vendorName; // Update only name locally
+                }
+    
+                renderVendorList(); // Refresh list
+                resetVendorForm();
+                populateVendorDropdown('movie-vendor'); // Update movie form dropdown
+    
+            } catch (error) {
+                console.error("Error updating vendor name:", error);
+                alert(`Failed to update vendor name. Please try again.`);
+            } finally {
+                 vendorSubmitButton.disabled = false;
+                 vendorSubmitButton.textContent = 'Save Changes'; // Reset button text based on mode
+            }
+            return; // Stop execution after handling edit
+        }
+    
+        // --- Handle Adding New Vendor ---
+        vendorSubmitButton.disabled = true;
+        vendorSubmitButton.textContent = 'Adding...';
+    
+        try {
+            // 1. Create user in Firebase Auth
+            const userCredential = await createUserWithEmailAndPassword(auth, vendorEmail, vendorPassword);
+            const user = userCredential.user;
+            console.log("Vendor Auth user created:", user.uid, user.email);
+    
+            // 2. Create user role document in /users/{uid}
+            const userDocRef = doc(db, "users", user.uid);
+            await setDoc(userDocRef, {
+                email: user.email,
+                role: 'vendor',
+                createdAt: serverTimestamp()
+            });
+            console.log("Vendor role document created in /users/", user.uid);
+    
+            // 3. Create vendor details document in /vendors/{uid} (using UID as ID)
+            const vendorDocRef = doc(db, "vendors", user.uid);
+            const vendorData = {
+                name: vendorName,
+                email: user.email, // Use email from Auth user
+                userId: user.uid, // Link to Auth UID
+                // DO NOT store password here
+                createdAt: serverTimestamp()
+            };
+            await setDoc(vendorDocRef, vendorData);
+            console.log("Vendor details document created in /vendors/", user.uid);
+    
+            // Add to local array (use UID as the main ID)
+            vendors.push({ id: user.uid, ...vendorData, createdAt: new Date() });
+    
+            renderVendorList(); // Refresh list
+            resetVendorForm();
+            populateVendorDropdown('movie-vendor');
+    
+        } catch (error) {
+            console.error("Error adding vendor:", error);
+            if (error.code === 'auth/email-already-in-use') {
+                alert("This email is already registered in Firebase Authentication.");
+            } else if (error.code === 'auth/weak-password') {
+                 alert("Password is too weak.");
+            } else {
+                alert(`Failed to add vendor. Please try again. ${error.message}`);
+            }
+            // IMPORTANT: If Auth creation succeeded but Firestore failed,
+            // you might have an orphaned Auth user. Manual cleanup might be needed.
+        } finally {
+            vendorSubmitButton.disabled = false;
+            vendorSubmitButton.textContent = 'Add Vendor';
+        }
     }
-}
 
 // Show Edit Vendor Form (Using Firestore ID)
-function showEditVendorForm(vendorId) {
-    const vendor = vendors.find(v => v.id === vendorId);
+function showEditVendorForm(vendorId) { // vendorId is now the Auth UID
+    const vendor = vendors.find(v => v.id === vendorId); // Find by UID
     if (!vendor) {
         console.error("Vendor not found for editing:", vendorId);
         resetVendorForm();
         return;
     }
-    editingVendorId = vendorId; // Set the ID being edited
+    editingVendorId = vendorId; // Store the UID being edited
 
     document.getElementById('vendor-name').value = vendor.name;
     document.getElementById('new-vendor-email').value = vendor.email;
-    // Security Warning: Displaying/editing stored passwords is bad practice.
-    document.getElementById('new-vendor-password').value = vendor.password || ''; // Handle if password wasn't stored initially
+    document.getElementById('new-vendor-password').value = ''; // Clear password field
 
-    vendorFormTitle.textContent = 'Edit Vendor';
-    vendorSubmitButton.textContent = 'Save Changes';
+    // --- Disable email and password editing ---
+    document.getElementById('new-vendor-email').disabled = true;
+    document.getElementById('new-vendor-password').disabled = true;
+    document.getElementById('new-vendor-password').placeholder = 'Cannot edit password here';
+
+
+    vendorFormTitle.textContent = 'Edit Vendor Name'; // Clarify what can be edited
+    vendorSubmitButton.textContent = 'Save Name Change';
     vendorCancelEditButton.classList.remove('hidden');
     vendorForm.scrollIntoView({ behavior: 'smooth' });
 }
 
 // Delete Vendor (Using Firestore ID and unassigning movies)
-async function deleteVendor(vendorId) {
+async function deleteVendor(vendorId) { // vendorId is Auth UID
     const vendor = vendors.find(v => v.id === vendorId);
     if (!vendor) {
-        console.error("Vendor not found for deletion:", vendorId)
+        console.error("Vendor not found for deletion:", vendorId);
         return;
     }
     const vendorName = vendor.name;
+    const vendorEmail = vendor.email; // For confirmation message
 
-    if (confirm(`Delete vendor "${vendorName}"? Movies assigned to this vendor will be unassigned.`)) {
-        console.log("Deleting vendor:", vendorId, "Name:", vendorName);
+    if (confirm(`Delete vendor "${vendorName}" (${vendorEmail})?\n\nThis removes vendor details and role, and unassigns movies.\n\nNOTE: The underlying login (Firebase Auth user) must be deleted manually in the Firebase Console.`)) {
+        console.log("Deleting vendor data for UID:", vendorId, "Name:", vendorName);
         try {
             const batch = writeBatch(db);
 
-            // 1. Delete the vendor document
-            const vendorRef = doc(db, "vendors", vendorId);
-            batch.delete(vendorRef);
+            // 1. Delete the vendor document from /vendors/{uid}
+            const vendorDetailsRef = doc(db, "vendors", vendorId);
+            batch.delete(vendorDetailsRef);
 
-            // 2. Query movies assigned to this vendor
+            // 2. Delete the user role document from /users/{uid}
+            const userRoleRef = doc(db, "users", vendorId);
+            batch.delete(userRoleRef);
+
+            // 3. Query movies assigned to this vendor's name
             const moviesQuery = query(collection(db, "movies"), where("vendorName", "==", vendorName));
             const moviesSnapshot = await getDocs(moviesQuery);
 
-            // 3. Update assigned movies to have null vendorName
+            // 4. Update assigned movies to have null vendorName
             moviesSnapshot.forEach(movieDoc => {
                 console.log(`Unassigning vendor from movie: ${movieDoc.id}`);
                 batch.update(movieDoc.ref, { vendorName: null });
@@ -1101,7 +1259,7 @@ async function deleteVendor(vendorId) {
 
             // Commit the batch
             await batch.commit();
-            console.log("Vendor deleted and movies unassigned.");
+            console.log("Vendor Firestore documents deleted and movies unassigned.");
 
             // Update local state
             vendors = vendors.filter(v => v.id !== vendorId);
@@ -1114,24 +1272,20 @@ async function deleteVendor(vendorId) {
             // Refresh UI
             renderVendorList();
             resetVendorForm();
-            populateVendorDropdown('movie-vendor'); // Refresh dropdown in movie form
-             // If admin movie management tab is active, refresh it too
-            if (currentAdminTab === 'admin-manage-movies') {
+            populateVendorDropdown('movie-vendor');
+             if (currentAdminTab === 'admin-manage-movies') {
                 renderMovies(adminMovieListContainer, 'admin');
                 renderMovies(customerPreviewContainer, 'preview');
-            }
-            // If vendor dashboard was somehow visible (shouldn't be after delete), refresh it
-             if (authState.user?.name === vendorName) {
-                 handleLogout(); // Log out the deleted vendor if they were logged in
              }
-
+            // No need to log out here, Auth user still exists until manually deleted
 
         } catch (error) {
-            console.error("Error deleting vendor and updating movies:", error);
-            alert("Failed to delete vendor. Please try again.");
+            console.error("Error deleting vendor Firestore data and updating movies:", error);
+            alert("Failed to delete vendor data. Please check the console and ensure you have permissions. Auth user may need manual deletion.");
         }
     }
 }
+
 
 function populateVendorDropdown(selectElementId) {
     const select = document.getElementById(selectElementId);
@@ -1662,21 +1816,30 @@ async function handlePaymentFormSubmit(event) {
 
          closePaymentModal();
          closeModal(); // Close movie details modal too
-
-         // Refresh relevant views
-         if (isShowingMyBookings) { renderMyBookings(); } // Refresh 'My Bookings' if active
+ 
+         // Refresh relevant views using the updated local allBookings array
+         if (isShowingMyBookings) { renderMyBookings(); } // Uses updated allBookings
+ 
          if (adminView && !adminView.classList.contains('is-hidden')) {
-            if (currentAdminTab === 'admin-bookings-section') renderAdminBookingsList();
-            if (currentAdminTab === 'admin-analytics') renderAnalyticsDashboard();
+             if (currentAdminTab === 'admin-bookings-section') {
+                 renderAdminBookingsList(); // Uses updated allBookings
+             }
+             // Re-render analytics completely to reflect new booking
+             if (currentAdminTab === 'admin-analytics') {
+                 renderAnalyticsDashboard(); // Uses updated allBookings
+             }
          }
-          if (vendorDashboardView && !vendorDashboardView.classList.contains('is-hidden') && movie?.vendorName === authState.user?.name) {
-              renderVendorDashboard(); // Refresh vendor view if the booked movie belongs to them
-          }
-
+         // Refresh vendor dashboard if the booked movie belongs to the logged-in vendor
+         if (vendorDashboardView && !vendorDashboardView.classList.contains('is-hidden') && movie?.vendorName === authState.user?.name) {
+              renderVendorDashboard(); // Also uses updated allBookings/movies for analytics
+         }
+         // No full page reload needed - UI updates based on state change + local data update
+ 
      } catch (error) {
-         console.error("Error creating booking:", error);
-         displayError(paymentErrorElement, "Booking failed. Please try again.");
-         payNowBtn.disabled = false; payNowBtn.innerHTML = '<i class="fas fa-credit-card mr-2"></i>Pay Now';
+          // ... (error handling)
+     } finally { // Make sure button is re-enabled even on success/error
+         payNowBtn.disabled = false;
+         payNowBtn.innerHTML = '<i class="fas fa-credit-card mr-2"></i>Pay Now';
      }
 }
 
@@ -1922,6 +2085,46 @@ function closeValidationModal() {
     }
 }
 
+function openQrZoomModal(qrElement) {
+    if (!qrElement || !qrZoomModal || !qrZoomContent) return;
+    // Clone the img element or regenerate a larger QR code
+    const existingImg = qrElement.querySelector('img');
+    if (existingImg) {
+        qrZoomContent.innerHTML = ''; // Clear previous
+        const zoomedImg = existingImg.cloneNode(true);
+        // Remove fixed width/height for natural scaling
+        zoomedImg.style.width = '300px'; // Set a larger base size
+        zoomedImg.style.height = '300px';
+        qrZoomContent.appendChild(zoomedImg);
+        showElement(qrZoomModal);
+    } else { // Fallback: Regenerate if img not found (e.g., if using canvas)
+         const qrData = qrElement.title; // Get data stored in title attribute
+         if(qrData){
+             qrZoomContent.innerHTML = ''; // Clear previous
+             try {
+                  new QRCode(qrZoomContent, {
+                      text: qrData,
+                      width: 300, // Larger size
+                      height: 300,
+                      colorDark : "#000000",
+                      colorLight : "#ffffff",
+                      correctLevel : QRCode.CorrectLevel.M
+                  });
+                  showElement(qrZoomModal);
+             } catch(e){
+                 console.error("Failed to generate zoomed QR code:", e);
+             }
+         }
+    }
+}
+
+function closeQrZoomModal() {
+    if (qrZoomModal) {
+        hideElement(qrZoomModal);
+        qrZoomContent.innerHTML = ''; // Clear content
+    }
+}
+
 // --- Initialization ---
 function initializeApp() {
     console.log("Initializing App...");
@@ -1954,6 +2157,12 @@ function initializeApp() {
     paymentModalCloseBtn.addEventListener('click', closePaymentModal);
     paymentModalCloseBtnSecondary.addEventListener('click', closePaymentModal);
     payNowBtn.addEventListener('click', handlePaymentFormSubmit); // Call async function
+    qrZoomCloseBtn.addEventListener('click', closeQrZoomModal);
+    qrZoomModal.addEventListener('click', (e) => { // Close if clicking background
+    if (e.target === qrZoomModal) {
+        closeQrZoomModal();
+    }
+});
 
     // --- Firebase Auth State Listener ---
     onAuthStateChanged(auth, async (user) => {
@@ -1977,17 +2186,17 @@ function initializeApp() {
                     // If vendor, fetch vendor details (like name) based on email match
                     // Assumes vendor email in Auth matches email in 'vendors' collection
                     if (userType === 'vendor') {
-                        const vendorQuery = query(collection(db, "vendors"), where("email", "==", user.email));
-                        const vendorSnap = await getDocs(vendorQuery);
-                        if (!vendorSnap.empty) {
-                            // Should only be one vendor per email
-                            vendorName = vendorSnap.docs[0].data().name;
-                            console.log(`Vendor name found: ${vendorName}`);
+                        // Fetch vendor name from /vendors/{uid} collection
+                        const vendorDetailsRef = doc(db, "vendors", user.uid); // Use UID
+                        const vendorDetailsSnap = await getDoc(vendorDetailsRef);
+                        if (vendorDetailsSnap.exists()) {
+                            vendorName = vendorDetailsSnap.data().name;
+                            console.log(`Vendor name found from /vendors: ${vendorName}`);
                         } else {
-                            console.warn(`Vendor document not found for email: ${user.email}, but role is 'vendor'.`);
-                             // Potential inconsistency: User has 'vendor' role but no matching vendor doc.
-                             // Handle this case - maybe default to customer or show error?
-                             userType = 'customer'; // Fallback to customer type if vendor details missing
+                             console.warn(`Vendor details document NOT found in /vendors/${user.uid} for vendor role user ${user.email}.`);
+                             // Decide how to handle: log out, default name, proceed without name?
+                             // For now, we proceed without a specific vendor name displayed.
+                             vendorName = user.email; // Fallback display name
                         }
                     }
                 } else {
@@ -2005,7 +2214,7 @@ function initializeApp() {
                         uid: user.uid,
                         email: user.email,
                         type: userType,
-                        name: vendorName // Will be null unless type is 'vendor' and name was found
+                        name: vendorName // Contains name if vendor, null otherwise
                     }
                  };
 

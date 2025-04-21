@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SilverSeat - Payment & Calendar</title>
+    <title>SilverSeat</title>
 
     <!-- Import Firebase modules -->
     <script type="module" src="firebase.js"></script>
@@ -15,7 +15,6 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <!-- Use the correct path for html5-qrcode -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-
 
     <!-- Pikaday Date Picker -->
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/pikaday/css/pikaday.css">
@@ -38,6 +37,16 @@
              </div>
          </div>
      </div>
+
+    <!-- QR Code Zoom Modal -->
+    <div id="qr-zoom-modal" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 is-hidden" style="z-index: 150;">
+        <div class="relative bg-white p-2 rounded shadow-lg">
+            <button id="qr-zoom-close-btn" class="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-lg leading-none font-bold z-10">×</button>
+            <div id="qr-zoom-content" class="max-w-[80vw] max-h-[80vh]">
+                <!-- Zoomed QR Code Image will be placed here -->
+            </div>
+        </div>
+    </div>
 
     <!-- Auth View -->
     <div id="auth-view" class="is-hidden">
@@ -72,7 +81,7 @@
                  <h2 class="text-2xl font-bold text-center text-gray-800">Admin Login</h2>
                  <p id="admin-login-error" class="text-red-500 text-sm text-center is-hidden"></p>
                  <div><label for="admin-email" class="form-label">Email:</label><input type="email" id="admin-email" class="form-input" required value="admin@example.com"></div>
-                 <div><label for="admin-password" class="form-label">Password:</label><input type="password" id="admin-password" class="form-input" required value=""></div> {/* Clear default password */}
+                 <div><label for="admin-password" class="form-label">Password:</label><input type="password" id="admin-password" class="form-input" required value=""></div>
                  <button type="submit" class="btn btn-primary w-full">Admin Login</button>
                  <div class="text-center"><button type="button" class="btn-link back-to-customer-login">Back to Customer Login</button></div>
              </form>
@@ -342,7 +351,7 @@
 
     <!-- QR Validation Modal (Admin) -->
     <div id="qr-validation-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 is-hidden">
-        <div class="modal-content w-full max-w-md bg-white rounded-lg shadow-xl overflow-hidden"> {/* Added max-width */}
+        <div class="modal-content w-full max-w-md bg-white rounded-lg shadow-xl overflow-hidden">
             <div class="flex justify-between items-center p-4 border-b bg-gray-50">
                 <h2 class="text-xl font-semibold text-gray-800">Scan Result</h2>
                 <button id="validation-modal-close-btn" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
@@ -353,7 +362,7 @@
                 <p><strong>Seats:</strong> <span id="validation-seats" class="font-mono">--</span></p>
                 <p><strong>Customer:</strong> <span id="validation-email">--</span></p>
                 <p><strong>Booking ID:</strong> <span id="validation-booking-id" class="text-xs text-gray-500">--</span></p>
-                <div id="validation-status" class="text-sm mt-4">Checking status...</div> {/* Added margin-top */}
+                <div id="validation-status" class="text-sm mt-4">Checking status...</div>
             </div>
             <div class="modal-footer p-4 bg-gray-50 border-t flex justify-end gap-3">
                 <button id="mark-used-btn" class="btn btn-success bg-green-500 hover:bg-green-600 text-white" disabled><i class="fas fa-check mr-2"></i>Mark as Used</button>
@@ -364,7 +373,7 @@
 
      <!-- Fake Payment Modal -->
      <div id="payment-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 is-hidden">
-         <div class="modal-content w-full max-w-md bg-white rounded-lg shadow-xl overflow-hidden"> {/* Adjusted max-width */}
+         <div class="modal-content w-full max-w-md bg-white rounded-lg shadow-xl overflow-hidden">
              <div class="flex justify-between items-center p-4 border-b bg-gray-50">
                  <h2 class="text-xl font-semibold text-gray-800">Confirm Booking & Payment</h2>
                  <button id="payment-modal-close-btn" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
@@ -381,8 +390,8 @@
 
                  <form id="payment-form" class="space-y-4">
                      <div><label for="cardholder-name" class="form-label">Cardholder Name</label><input type="text" id="cardholder-name" class="form-input" required placeholder="Full Name"></div>
-                     <div><label for="card-number" class="form-label">Card Number</label><input type="text" id="card-number" class="form-input" required placeholder="xxxx xxxx xxxx xxxx" maxlength="19"></div> {/* Add placeholder */}
-                     <div class="grid grid-cols-2 gap-4"> {/* Simplified grid */}
+                     <div><label for="card-number" class="form-label">Card Number</label><input type="text" id="card-number" class="form-input" required placeholder="xxxx xxxx xxxx xxxx" maxlength="19"></div>
+                     <div class="grid grid-cols-2 gap-4">
                          <div><label for="card-cvv" class="form-label">CVV</label><input type="text" id="card-cvv" class="form-input" required placeholder="123" maxlength="4"></div>
                          <div><label for="card-expiry" class="form-label">Expiry Date</label><input type="text" id="card-expiry" class="form-input" required placeholder="MM/YY" maxlength="5"></div>
                      </div>
